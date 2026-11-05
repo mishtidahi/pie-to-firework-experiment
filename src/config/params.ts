@@ -3,6 +3,14 @@
  *
  * `wiredIn` records which build phase connects a parameter to the visuals, so
  * the panel can mark controls that exist but have no effect yet.
+ *
+ * `scope` separates what is rendered from how it is delivered:
+ *  - 'animation' (default): affects the rendered frames; saved in presets.
+ *  - 'output': delivery/workbench settings (e.g. frame-step fps); never part of
+ *    a preset. Export resolution, fps and format are CLI options (see README).
+ *
+ * This module is environment-neutral (no DOM, no Vite APIs) so Node-based
+ * export tooling can import it directly.
  */
 
 export type BuildPhase = 1 | 2 | 3 | 4;
@@ -12,6 +20,7 @@ interface BaseDef {
   group: ParamGroup;
   wiredIn: BuildPhase;
   hint?: string;
+  scope?: 'animation' | 'output';
 }
 
 export interface NumberDef extends BaseDef {
@@ -122,13 +131,48 @@ export const PARAM_SCHEMA = {
     options: ['16:9', '1:1', '4:5', '9:16'],
     wiredIn: 1,
   } satisfies SelectDef,
-  exportFps: num('Output', 'Export FPS', 30, 12, 60, 1, 1, 'fps', 'Also the frame-step size'),
+  exportFps: {
+    ...num('Output', 'Frame-step FPS', 30, 12, 60, 1, 1, 'fps', 'Workbench frame-step and frame counter only. Not part of presets; export picks its own fps.'),
+    scope: 'output',
+  },
 } as const satisfies Record<string, ParamDef>;
 
 export type ParamKey = keyof typeof PARAM_SCHEMA;
 export type Params = {
   [K in ParamKey]: (typeof PARAM_SCHEMA)[K] extends SelectDef ? string : number;
 };
+
+/** Keys that affect the rendered animation (preset contents), in schema order. */
+export const ANIMATION_PARAM_KEYS = (Object.keys(PARAM_SCHEMA) as ParamKey[]).filter(
+  (k) => (PARAM_SCHEMA[k] as ParamDef).scope !== 'output',
+);
+/** Delivery / workbench-only keys, never stored in presets. */
+export const OUTPUT_PARAM_KEYS = (Object.keys(PARAM_SCHEMA) as ParamKey[]).filter(
+  (k) => (PARAM_SCHEMA[k] as ParamDef).scope === 'output',
+);
+
+/**
+ * Phase duration keys in playback order. Must match the order of PHASES in
+ * src/phases/index.ts (verified by scripts/verify-presets.mjs, which compares
+ * animationDuration() with the engine's timeline duration).
+ */
+export const PHASE_DURATION_KEYS = [
+  'durIntro',
+  'durReveal',
+  'durSettle',
+  'durSpinUp',
+  'durBlur',
+  'durFirework',
+  'durZoom',
+  'durHold',
+] as const satisfies readonly ParamKey[];
+
+/** Total timeline length, summed in the same order the master timeline uses. */
+export function animationDuration(p: Pick<Params, (typeof PHASE_DURATION_KEYS)[number]>): number {
+  let t = 0;
+  for (const k of PHASE_DURATION_KEYS) t += p[k];
+  return t;
+}
 
 export function defaultParams(): Params {
   const out: Record<string, number | string> = {};

@@ -139,3 +139,19 @@ summary { cursor: pointer; padding: 4px 0; font-weight: 600; }
 .param-input input { width: 100%; accent-color: var(--accent); }
 .param-value { font-family: ui-monospace, Consolas, monospace; font-size: 11px; text-align: right; color: var(--dim); }
 .tag { font-size: 9px; padding: 1px 5px; border-radius: 8px; background: #2a2a33; color: var(--dim); text-transform: uppercase; letter-spacing: 0.05em; }
+
+/* ── Presets ───────────────────────────────────────────────────────────────── */
+.preset-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 6px 0; }
+.preset-row select { flex: 1; min-width: 0; }
+input.text { background: #23232b; border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; width: 100%; font-family: ui-monospace, Consolas, monospace; }
+input.text.invalid { border-color: #ff6b6b; }
+.tag.modified { background: #4a3a10; color: var(--accent); margin-left: 6px; }
+.draft-banner { display: flex; flex-direction: column; gap: 6px; background: #2a2414; border: 1px solid #5a4a1a; border-radius: 6px; padding: 8px; margin: 6px 0; font-size: 12px; }
+.draft-banner span:last-child { display: flex; gap: 6px; }
+.preset-errors { background: #2a1416; border: 1px solid #6a2a2e; border-radius: 6px; padding: 6px 8px; font-size: 11px; color: #ffb4b4; }
+.preset-ok { font-size: 11px; color: var(--dim); word-break: break-all; }
+.preset-errors p, .preset-ok p { margin: 2px 0; }
+.preset-error-screen { max-width: 720px; margin: 10vh auto; padding: 24px; background: var(--panel); border: 1px solid #6a2a2e; border-radius: 10px; }
+.preset-error-screen h1 { font-size: 18px; margin: 0 0 12px; color: #ffb4b4; }
+.preset-error-screen li { margin: 4px 0; font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+.preset-error-screen a { color: var(--accent); }
