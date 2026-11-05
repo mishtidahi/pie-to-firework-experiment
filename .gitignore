@@ -1,0 +1,6 @@
+node_modules
+dist
+export
+*.local
+.DS_Store
+captures
