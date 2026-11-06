@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 /**
- * Phase 4: deterministic MP4 export of the final preset.
+ * Phase 4: deterministic MP4 export of a repository preset.
  *
- *   npm run export        → export/pie-to-firework-final.mp4
+ *   npm run export                               → export/pie-to-firework-final-4s.mp4 (4 s, 240 frames)
+ *   npm run export -- --preset final             → export/pie-to-firework-final.mp4    (8 s fallback, 480 frames)
  *
- * 1920×1080, 60 fps, 480 frames (8 s), H.264 (libx264, CRF 18, preset medium),
+ * 1920×1080, 60 fps, duration × 60 frames, H.264 (libx264, CRF 18, preset medium),
  * yuv420p BT.709, faststart, no audio.
  *
  * The plan (preset, fingerprint, page URL, frame times) comes from
@@ -20,9 +21,10 @@ import { mkdirSync, renameSync, rmSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { chromium } from 'playwright-core';
 import { createServer } from 'vite';
-import { PROJECT_ROOT, frameTimes, resolveExportConfig } from './lib/export-config.mjs';
+import { PROJECT_ROOT, frameTimes, parseArgs, resolveExportConfig } from './lib/export-config.mjs';
 
-const OUT = resolve(PROJECT_ROOT, 'export', 'pie-to-firework-final.mp4');
+const { preset = 'final-4s' } = parseArgs(process.argv.slice(2));
+const OUT = resolve(PROJECT_ROOT, 'export', `pie-to-firework-${preset}.mp4`);
 
 function findFfmpeg() {
   const works = (bin) => bin && spawnSync(bin, ['-version'], { stdio: 'ignore' }).status === 0;
@@ -36,12 +38,15 @@ function findFfmpeg() {
   throw new Error('FFmpeg not found: set FFMPEG_PATH, put ffmpeg on PATH, or `pip install imageio-ffmpeg`.');
 }
 
-const plan = resolveExportConfig({ preset: 'final', width: '1920', height: '1080', fps: '60', format: 'mp4' });
-if (plan.preset.version !== 3) throw new Error(`presets/final.json must be version 3 (got ${plan.preset.version}).`);
-if (plan.timeline.frameCount !== 480) throw new Error(`Expected 480 frames, plan has ${plan.timeline.frameCount}.`);
+const plan = resolveExportConfig({ preset, width: '1920', height: '1080', fps: '60', format: 'mp4' });
+if (plan.preset.version !== 3) throw new Error(`presets/${preset}.json must be version 3 (got ${plan.preset.version}).`);
+const exactFrames = plan.timeline.duration * plan.output.fps;
+if (Math.abs(exactFrames - Math.round(exactFrames)) > 1e-9 || plan.timeline.frameCount !== Math.round(exactFrames)) {
+  throw new Error(`Duration ${plan.timeline.duration} s is not a whole number of frames at ${plan.output.fps} fps.`);
+}
 const { width: W, height: H, fps } = plan.output;
 const ffmpegBin = findFfmpeg();
-console.log(`preset final v${plan.preset.version} (fp ${plan.preset.fingerprint}) → ${W}x${H} @ ${fps} fps, ${plan.timeline.frameCount} frames`);
+console.log(`preset ${preset} v${plan.preset.version} (fp ${plan.preset.fingerprint}) → ${W}x${H} @ ${fps} fps, ${plan.timeline.frameCount} frames`);
 
 const server = await createServer({ root: PROJECT_ROOT, logLevel: 'error', server: { port: 5190, strictPort: false } });
 await server.listen();
