@@ -26,6 +26,7 @@ npm run typecheck
 npm test             # unit tests: preset format, validation, export configuration (Node built-in runner)
 npm run export       # 4 s final MP4 → export/pie-to-firework-final-4s.mp4 (see Export below)
 npm run export:portrait  # 1080×1920 portrait MP4 → export/pie-to-firework-portrait.mp4
+npm run export:captcha   # "Select Joy" CAPTCHA sequence → export/diwali-captcha-4s-portrait.mp4
 npm run export:plan -- --preset final --fps 60   # dry run of the export interface (renders nothing)
 ```
 
@@ -155,3 +156,13 @@ The plan contains the exact player URL to load, e.g. `/?debug=0&autoplay=0&prese
 - [x] **Cel-shaded 3D revision:** spinner body with thickness, bevel and side wall; hard-banded lighting; pie → coil-band morph; 3D particles (preset format v2)
 - [x] **Spark emission revision:** gold first, then nozzle ignition → expanding shower → tilt → fade; graphic cel strokes (preset format v3)
 - [ ] Phase 4: deterministic PNG export, then MP4/GIF via FFmpeg
+
+## Second sequence: Diwali CAPTCHA "Select Joy"
+
+Open with `?scene=captcha` (stage only: `?scene=captcha&debug=0`); without `scene` the spinner runs as before. A 4-second, natively portrait (1080×1920) sequence in the same palette and cel style: a CAPTCHA card asks to "Select all images that will bring joy.", all nine Diwali tiles get selected, VERIFY is pressed, a rocket shoots up from below the frame and bursts, and the burst blows the card apart and floods the frame with #ffde59.
+
+- Code: `src/sequences/captcha/` (`config.ts` preset schema + fingerprint, `engine.ts` GSAP timeline with the same play/pause/seek surface as the spinner, `draw/` Canvas 2D renderers: panel, icons, rocket, explosion). Nothing in the spinner is shared or modified apart from the scene switch in `src/main.tsx`.
+- Preset: `presets/captcha/captcha-4s-portrait.json` (own schema, `"format": "captcha-preset"`; kept out of `presets/` so the spinner's preset registry never sees it).
+- Deterministic: interface state is tweened by a paused GSAP timeline; rocket, burst and particles are closed-form functions of time with seeded hashes, so any frame renders identically whether played or seeked.
+- Export: `npm run export:captcha` (the same exporter, `--scene captcha`).
+

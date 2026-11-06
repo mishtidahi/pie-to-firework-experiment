@@ -5,6 +5,7 @@
  *   npm run export                               → export/pie-to-firework-final-4s.mp4 (4 s, 240 frames)
  *   npm run export -- --preset final             → export/pie-to-firework-final.mp4    (8 s fallback, 480 frames)
  *   npm run export:portrait                      → export/pie-to-firework-portrait.mp4 (1080×1920, 4 s)
+ *   npm run export:captcha                       → export/diwali-captcha-4s-portrait.mp4 (CAPTCHA scene, 1080×1920, 4 s)
  *
  * 1080 px on the short side at the preset's aspect ratio (16:9 → 1920×1080), 60 fps, duration × 60 frames, H.264 (libx264, CRF 18, preset medium),
  * yuv420p BT.709, faststart, no audio.
@@ -18,14 +19,37 @@
  * Python package imageio-ffmpeg.
  */
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdirSync, renameSync, rmSync, statSync } from 'node:fs';
+import { mkdirSync, readFileSync, renameSync, rmSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { chromium } from 'playwright-core';
 import { createServer } from 'vite';
 import { PROJECT_ROOT, frameTimes, parseArgs, resolveExportConfig } from './lib/export-config.mjs';
+import { captchaFingerprint, validateCaptchaPreset } from '../src/sequences/captcha/config.ts';
 
-const { preset = 'final-4s', out } = parseArgs(process.argv.slice(2));
+const args = parseArgs(process.argv.slice(2));
+const scene = args.scene ?? 'spinner';
+if (!['spinner', 'captcha'].includes(scene)) throw new Error(`--scene must be spinner or captcha (got "${scene}").`);
+const { preset = scene === 'captcha' ? 'captcha-4s-portrait' : 'final-4s', out } = args;
 const OUT = resolve(PROJECT_ROOT, 'export', typeof out === 'string' ? out : `pie-to-firework-${preset}.mp4`);
+
+/** Export plan for the CAPTCHA scene: same shape as the spinner's, from its own preset schema. */
+function captchaPlan(name) {
+  const path = resolve(PROJECT_ROOT, 'presets', 'captcha', `${name}.json`);
+  const v = validateCaptchaPreset(JSON.parse(readFileSync(path, 'utf8')));
+  if (!v.ok) throw new Error(`${path} is invalid: ${v.errors.join(' ')}`);
+  if (v.preset.name !== name) throw new Error(`${path} declares "name": "${v.preset.name}".`);
+  const fingerprint = captchaFingerprint(v.preset.params);
+  const duration = v.preset.params.duration;
+  const fps = 60;
+  const [W, H] = [1080, 1920];
+  const query = new URLSearchParams({ scene: 'captcha', debug: '0', autoplay: '0', preset: name, fp: fingerprint });
+  return {
+    preset: { name, version: v.preset.version, fingerprint },
+    output: { width: W, height: H, fps },
+    timeline: { duration, from: 0, frameCount: Math.round(duration * fps) },
+    page: { url: `/?${query}`, viewport: { width: W, height: H }, deviceScaleFactor: 1 },
+  };
+}
 
 function findFfmpeg() {
   const works = (bin) => bin && spawnSync(bin, ['-version'], { stdio: 'ignore' }).status === 0;
@@ -39,15 +63,15 @@ function findFfmpeg() {
   throw new Error('FFmpeg not found: set FFMPEG_PATH, put ffmpeg on PATH, or `pip install imageio-ffmpeg`.');
 }
 
-const plan = resolveExportConfig({ preset, fps: '60', format: 'mp4' });
-if (plan.preset.version !== 3) throw new Error(`presets/${preset}.json must be version 3 (got ${plan.preset.version}).`);
+const plan = scene === 'captcha' ? captchaPlan(preset) : resolveExportConfig({ preset, fps: '60', format: 'mp4' });
+if (scene === 'spinner' && plan.preset.version !== 3) throw new Error(`presets/${preset}.json must be version 3 (got ${plan.preset.version}).`);
 const exactFrames = plan.timeline.duration * plan.output.fps;
 if (Math.abs(exactFrames - Math.round(exactFrames)) > 1e-9 || plan.timeline.frameCount !== Math.round(exactFrames)) {
   throw new Error(`Duration ${plan.timeline.duration} s is not a whole number of frames at ${plan.output.fps} fps.`);
 }
 const { width: W, height: H, fps } = plan.output;
 const ffmpegBin = findFfmpeg();
-console.log(`preset ${preset} v${plan.preset.version} (fp ${plan.preset.fingerprint}) → ${W}x${H} @ ${fps} fps, ${plan.timeline.frameCount} frames`);
+console.log(`${scene} preset ${preset} v${plan.preset.version} (fp ${plan.preset.fingerprint}) → ${W}x${H} @ ${fps} fps, ${plan.timeline.frameCount} frames`);
 
 const server = await createServer({ root: PROJECT_ROOT, logLevel: 'error', server: { port: 5190, strictPort: false } });
 await server.listen();

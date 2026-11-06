@@ -1,0 +1,20 @@
+{
+  "format": "captcha-preset",
+  "version": 1,
+  "name": "captcha-4s-portrait",
+  "description": "Diwali CAPTCHA \"Select Joy\": 4 s, 1080x1920. Panel entrance, nine selections, VERIFY, rocket from below the frame, burst and yellow takeover.",
+  "params": {
+    "duration": 4,
+    "entranceEnd": 0.45,
+    "selectStart": 0.5,
+    "selectEnd": 1.26,
+    "verifyAt": 1.4,
+    "launchAt": 1.45,
+    "burstAt": 2.5,
+    "fillAt": 3.78,
+    "burstY": 760,
+    "sparkCount": 90,
+    "seed": 2024,
+    "aspect": "9:16"
+  }
+}
