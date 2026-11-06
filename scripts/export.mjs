@@ -4,8 +4,9 @@
  *
  *   npm run export                               → export/pie-to-firework-final-4s.mp4 (4 s, 240 frames)
  *   npm run export -- --preset final             → export/pie-to-firework-final.mp4    (8 s fallback, 480 frames)
+ *   npm run export:portrait                      → export/pie-to-firework-portrait.mp4 (1080×1920, 4 s)
  *
- * 1920×1080, 60 fps, duration × 60 frames, H.264 (libx264, CRF 18, preset medium),
+ * 1080 px on the short side at the preset's aspect ratio (16:9 → 1920×1080), 60 fps, duration × 60 frames, H.264 (libx264, CRF 18, preset medium),
  * yuv420p BT.709, faststart, no audio.
  *
  * The plan (preset, fingerprint, page URL, frame times) comes from
@@ -23,8 +24,8 @@ import { chromium } from 'playwright-core';
 import { createServer } from 'vite';
 import { PROJECT_ROOT, frameTimes, parseArgs, resolveExportConfig } from './lib/export-config.mjs';
 
-const { preset = 'final-4s' } = parseArgs(process.argv.slice(2));
-const OUT = resolve(PROJECT_ROOT, 'export', `pie-to-firework-${preset}.mp4`);
+const { preset = 'final-4s', out } = parseArgs(process.argv.slice(2));
+const OUT = resolve(PROJECT_ROOT, 'export', typeof out === 'string' ? out : `pie-to-firework-${preset}.mp4`);
 
 function findFfmpeg() {
   const works = (bin) => bin && spawnSync(bin, ['-version'], { stdio: 'ignore' }).status === 0;
@@ -38,7 +39,7 @@ function findFfmpeg() {
   throw new Error('FFmpeg not found: set FFMPEG_PATH, put ffmpeg on PATH, or `pip install imageio-ffmpeg`.');
 }
 
-const plan = resolveExportConfig({ preset, width: '1920', height: '1080', fps: '60', format: 'mp4' });
+const plan = resolveExportConfig({ preset, fps: '60', format: 'mp4' });
 if (plan.preset.version !== 3) throw new Error(`presets/${preset}.json must be version 3 (got ${plan.preset.version}).`);
 const exactFrames = plan.timeline.duration * plan.output.fps;
 if (Math.abs(exactFrames - Math.round(exactFrames)) > 1e-9 || plan.timeline.frameCount !== Math.round(exactFrames)) {

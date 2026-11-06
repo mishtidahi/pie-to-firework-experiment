@@ -67,7 +67,7 @@ export function StageCanvas() {
       flat
       dpr={[1, 2]}
       gl={{ antialias: true, alpha: false, preserveDrawingBuffer: true }}
-      camera={{ fov, near: 0.01, far: 100, position: [0, 0, cameraDistanceForFov(fov)] }}
+      camera={{ fov, near: 0.01, far: 100, position: [0, 0, cameraZ(params, 0)] }}
       onCreated={(state) => {
         // Exposed for inspection and verification (renderer stats, GPU info).
         window.__pieFireworkGL = state.gl;

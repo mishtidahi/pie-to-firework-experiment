@@ -25,6 +25,7 @@ npm run build        # static, relocatable site in dist/
 npm run typecheck
 npm test             # unit tests: preset format, validation, export configuration (Node built-in runner)
 npm run export       # 4 s final MP4 → export/pie-to-firework-final-4s.mp4 (see Export below)
+npm run export:portrait  # 1080×1920 portrait MP4 → export/pie-to-firework-portrait.mp4
 npm run export:plan -- --preset final --fps 60   # dry run of the export interface (renders nothing)
 ```
 
@@ -93,9 +94,12 @@ Animation parameters come **only** from the preset. Output options come **only**
 ```bash
 npm run export                         # → export/pie-to-firework-final-4s.mp4 (4 s, 240 frames)
 npm run export -- --preset final       # → export/pie-to-firework-final.mp4    (8 s fallback, 480 frames)
+npm run export:portrait                # → export/pie-to-firework-portrait.mp4 (preset final-4s-portrait, 1080×1920)
 ```
 
 `presets/final-4s.json` is the 4-second cut: phase durations shortened non-uniformly (intro 0.1, reveal 0.65, overshoot/recoil 0.25, rev/spin-up 0.8, blur 0.35, spinner + shower 0.85, tilt/zoom 0.85, hold 0.15 s), with the same spin speed and spark physics, earlier ignition, a shorter concentrated stage (0.2 s) and higher emission rates (900 / 1500 per s) so the shower is fully populated by the tilt. `presets/final.json` keeps the 8-second version.
+
+`presets/final-4s-portrait.json` is the same animation at 9:16. Portrait formats are framed wider (camera start distance × √(height/width), `frameScale` in `src/geometry/projection.ts`), so the pie keeps its landscape share of the frame area (48 % of the width at 9:16) and the shower still reads inside the narrow frame; the corner-coverage solve for the yellow fill uses the same camera, so it fills all four corners. Landscape and square framing are unchanged.
 
 `scripts/export.mjs` renders the chosen preset (v3, fingerprint-pinned) in Edge/Chrome with SwiftShader through a private Vite server, seeks frame *i* to *t = i / 60* and streams each canvas PNG into FFmpeg: 1920×1080, 60 fps, duration × 60 frames, H.264 High, CRF 18, preset medium, yuv420p BT.709, faststart, no audio. FFmpeg is taken from `$FFMPEG_PATH`, then `ffmpeg` on PATH, then the binary bundled with the Python package `imageio-ffmpeg`. About 2 minutes.
 

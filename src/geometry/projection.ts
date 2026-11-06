@@ -8,8 +8,9 @@ import { DEG, PIE_RADIUS_WORLD } from './pieGeometry';
  * implementation guarantees the "yellow covers the corners" calculation
  * matches what is actually drawn.
  *
- * World: frame height is 2 units at z = 0 when the camera is at its start
- * distance. The camera sits on +z looking at the origin.
+ * World: in landscape and square formats the frame height is 2 units at z = 0
+ * when the camera is at its start distance; portrait formats are framed wider
+ * (see frameScale). The camera sits on +z looking at the origin.
  */
 
 /** Camera distance that frames exactly 2 world units of height at z = 0. */
@@ -17,9 +18,22 @@ export function cameraDistanceForFov(fovDeg: number): number {
   return 1 / Math.tan((fovDeg * DEG) / 2);
 }
 
+/**
+ * Start framing, as frame height in units of 2 world units at z = 0.
+ * Aspect ≥ 1: 1 (the pie keeps the reference's share of the frame height).
+ * Portrait: the camera starts further back, by √(height / width), so the pie
+ * keeps the same share of the frame AREA as in landscape (9:16 → pie ≈ 48 % of
+ * the width) instead of nearly filling the narrow frame. Geometry is never
+ * scaled per axis, only the camera distance changes.
+ */
+export function frameScale(params: Params): number {
+  const aspect = aspectRatio(params);
+  return aspect >= 1 ? 1 : Math.sqrt(1 / aspect);
+}
+
 /** Camera z for a given close-in progress (0..1). */
 export function cameraZ(params: Params, progress: number): number {
-  return cameraDistanceForFov(params.fov as number) * (1 - (params.closeIn as number) * progress);
+  return cameraDistanceForFov(params.fov as number) * frameScale(params) * (1 - (params.closeIn as number) * progress);
 }
 
 /** Unit tilt axis in the XY plane. */
