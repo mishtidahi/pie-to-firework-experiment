@@ -24,7 +24,8 @@ npm run dev          # http://localhost:5173            → debug workbench
 npm run build        # static, relocatable site in dist/
 npm run typecheck
 npm test             # unit tests: preset format, validation, export configuration (Node built-in runner)
-npm run export:plan -- --preset final --fps 60   # dry run of the Phase 4 export interface (renders nothing)
+npm run export       # final MP4 → export/pie-to-firework-final.mp4 (see Export below)
+npm run export:plan -- --preset final --fps 60   # dry run of the export interface (renders nothing)
 ```
 
 Browser verification (dev server must be running):
@@ -87,12 +88,13 @@ The workbench and the player resolve the URL with the same code (`src/config/pre
 
 ## Export interface (Phase 4)
 
-Animation parameters come **only** from the preset. Output options come **only** from the command line. `scripts/lib/export-config.mjs` validates both and produces the plan Phase 4 will execute. `npm run export:plan` prints that plan today without rendering anything:
+Animation parameters come **only** from the preset. Output options come **only** from the command line. `scripts/lib/export-config.mjs` validates both and produces the export plan; `npm run export:plan` prints it without rendering anything.
 
 ```bash
-node scripts/export.mjs --preset final --width 1920 --height 1080 --fps 60 --format png,mp4,gif   # Phase 4 (planned)
-node scripts/export-plan.mjs --preset final --width 1920 --height 1080 --fps 60 --format png,mp4,gif  # available now
+npm run export   # → export/pie-to-firework-final.mp4
 ```
+
+`scripts/export.mjs` renders `presets/final.json` (v3, fingerprint-pinned) in Edge/Chrome with SwiftShader through a private Vite server, seeks frame *i* to *t = i / 60* and streams each canvas PNG into FFmpeg: 1920×1080, 60 fps, 480 frames (8 s), H.264 High, CRF 18, preset medium, yuv420p BT.709, faststart, no audio. FFmpeg is taken from `$FFMPEG_PATH`, then `ffmpeg` on PATH, then the binary bundled with the Python package `imageio-ffmpeg`. About 2 minutes.
 
 | Option | Meaning | Default |
 | --- | --- | --- |
