@@ -27,19 +27,27 @@ export interface AnimState {
   angularVelocity: number;
 
   // ── Phase 3A: blur + colour (0..1 drivers) ────────────────────────────────
-  /** Blur window: 0 = physical shutter only, 1 = full 360° average. */
-  blurMix: number;
+  /** Pie → coil bands morph: 0 = angular sectors, 1 = concentric bands of the same proportions. */
+  morph: number;
   /** Gap between sectors: 0 = reference gap, 1 = closed. */
   gapClose: number;
   /** Sector colours → disc colour. */
   discMix: number;
+  /** Motion smear: 0 = soft (Phase 2 physical blur), 1 = posterised into hard cel tones. */
+  smear: number;
+  /** 3D body growth: 0 = flat pie, 1 = full thickness and bevel. */
+  body: number;
+  /** Cel shading strength of the body (0 = flat colour; back to 0 as yellow fills the frame). */
+  shade: number;
+  /** Gentle ignition tilt 0..1 (× preTiltDeg) before the main tilt. */
+  preTilt: number;
 
   // ── Phase 3B: ignition ────────────────────────────────────────────────────
   /** Light-orange disc → #ffde59. */
   goldMix: number;
-  /** Clockwise light streaks across the disc. */
+  /** Hard-edged spin accents (bevel arcs, side-wall stripe contrast). */
   energy: number;
-  /** Sparks, orbiting streaks and glow intensity. */
+  /** Sparks, orbiting streaks and rim heat flashes. */
   fire: number;
   /** Positional jitter and rotational instability envelope. */
   vibration: number;
@@ -77,9 +85,13 @@ export function createAnimState(): AnimState {
     reveal: 0,
     rotationDeg: 0,
     angularVelocity: 0,
-    blurMix: 0,
+    morph: 0,
     gapClose: 0,
     discMix: 0,
+    smear: 0,
+    body: 0,
+    shade: 0,
+    preTilt: 0,
     goldMix: 0,
     energy: 0,
     fire: 0,

@@ -50,7 +50,7 @@ test('presets contain exactly the animation parameters (output settings excluded
 });
 
 test('export → import round trip is lossless and stable', () => {
-  const params = { ...defaultParams(), seed: 4242, tiltDeg: 47, sparkCount: 2500, durZoom: 1.65, aspect: '1:1', discOrange: 0.73 };
+  const params = { ...defaultParams(), seed: 4242, tiltDeg: 47, showerDensity: 2500, durZoom: 1.65, aspect: '1:1', discOrange: 0.73 };
   const preset = createPreset('round-trip', params, 'desc', '2026-11-05T00:00:00.000Z');
   const text = serializePreset(preset);
   const v = validatePreset(JSON.parse(text));
@@ -115,19 +115,70 @@ test('rejects missing, mistyped, out-of-range, non-integer and invalid select va
   p.params.tiltDeg = 999;
   p.params.glow = 'bright';
   p.params.revPulses = 2.5;
-  p.params.sparkCount = Number.NaN;
+  p.params.showerDensity = Number.NaN;
   p.params.aspect = '21:9';
   const msg = errorsOf(p);
   assert.match(msg, /params.seed is missing/);
   assert.match(msg, /params.tiltDeg = 999 is outside 0…75/);
   assert.match(msg, /params.glow must be a finite number/);
   assert.match(msg, /params.revPulses must be a whole number/);
-  assert.match(msg, /params.sparkCount must be a finite number/);
+  assert.match(msg, /params.showerDensity must be a finite number/);
   assert.match(msg, /params.aspect must be one of/);
   assert.equal(validatePreset(p).errors.length, 6);
 });
 
 test('format constants', () => {
   assert.equal(PRESET_FORMAT, 'pie-firework-preset');
-  assert.equal(PRESET_VERSION, 1);
+  assert.equal(PRESET_VERSION, 3);
+});
+
+// Key sets of earlier formats, for building realistic old presets.
+const V2_ONLY = ['smearSteps', 'thickness', 'bevel', 'preTiltDeg', 'toonBands', 'coilGrooves', 'lightAngleDeg', 'sparkLift'];
+const V3_ONLY = ['igniteDur', 'igniteSpread', 'sparkCoverage', 'igniteRate', 'sparkWidth', 'sparkTrail', 'sparkWaver', 'sparkFadeAt'];
+/** A preset as version 2 wrote it: v2 keys, with the old spark parameters. */
+function oldPreset(version, overrides = {}) {
+  const raw = JSON.parse(serializePreset(createPreset('old-look', { ...defaultParams(), seed: 2024, tiltDeg: 50, goldAt: 0.55 })));
+  raw.version = version;
+  for (const k of [...V3_ONLY, 'showerDensity']) delete raw.params[k];
+  if (version < 2) for (const k of V2_ONLY) delete raw.params[k];
+  Object.assign(raw.params, { sparkCount: 1800, sparkSpeed: 2.3, sparkLife: 0.6, streakCount: 56 }, overrides);
+  return raw;
+}
+
+test('v1 presets (before the cel-shaded revision) migrate through v2 to v3', () => {
+  const v = validatePreset(oldPreset(1));
+  assert.ok(v.ok, v.ok ? '' : v.errors.join('; '));
+  assert.equal(v.preset.version, 3);
+  assert.equal(v.preset.params.seed, 2024, 'existing values kept');
+  assert.equal(v.preset.params.tiltDeg, 50);
+  for (const k of V2_ONLY) assert.equal(v.preset.params[k], defaultParams()[k], `${k} filled with its v2 default`);
+  for (const k of V3_ONLY) assert.equal(v.preset.params[k], defaultParams()[k], `${k} filled with its v3 default`);
+  // A v1 preset still has to be complete for v1.
+  const broken = oldPreset(1);
+  delete broken.params.glow;
+  assert.match(errorsOf(broken), /params.glow is missing/);
+});
+
+test('v2 presets migrate to v3: timing kept, new emission controls at defaults, rescaled spark values converted', () => {
+  const v = validatePreset(oldPreset(2));
+  assert.ok(v.ok, v.ok ? '' : v.errors.join('; '));
+  assert.equal(v.preset.version, 3);
+  assert.equal(v.preset.params.goldAt, 0.55, 'gold timing kept: ignition follows that preset’s gold moment');
+  assert.equal(v.preset.params.streakCount, 56, 'unchanged meaning: kept');
+  assert.ok(!('sparkCount' in v.preset.params), 'sparkCount is gone');
+  // Old defaults land exactly on the new defaults.
+  assert.equal(v.preset.params.showerDensity, defaultParams().showerDensity);
+  assert.equal(v.preset.params.sparkSpeed, defaultParams().sparkSpeed);
+  assert.equal(v.preset.params.sparkLife, defaultParams().sparkLife);
+  for (const k of V3_ONLY) assert.equal(v.preset.params[k], defaultParams()[k], `${k} filled with its v3 default`);
+  // Tuned values keep their proportion to the default (clamped and snapped to the step).
+  const tuned = validatePreset(oldPreset(2, { sparkCount: 3600, sparkSpeed: 1.15, sparkLife: 1.5 }));
+  assert.ok(tuned.ok, tuned.ok ? '' : tuned.errors.join('; '));
+  assert.equal(tuned.preset.params.showerDensity, 1800);
+  assert.equal(tuned.preset.params.sparkSpeed, 2.75);
+  assert.equal(tuned.preset.params.sparkLife, 2);
+  // Invalid old values are still reported, under the new key.
+  assert.match(errorsOf(oldPreset(2, { sparkCount: 'many' })), /params.showerDensity must be a finite number/);
+  // The result re-serialises as a clean v3 preset.
+  assert.equal(JSON.parse(serializePreset(v.preset)).version, 3);
 });

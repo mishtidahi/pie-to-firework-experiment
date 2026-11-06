@@ -6,7 +6,8 @@ import { cameraDistanceForFov, cameraZ } from '../geometry/projection';
 import { useEngine, useEngineBuild } from '../timeline/EngineContext';
 import { FireworkRig } from './FireworkRig';
 import { OrbitStreaks } from './OrbitStreaks';
-import { PieDisc } from './PieDisc';
+import { SpinnerBody } from './SpinnerBody';
+import { SparkSource } from './SparkSource';
 import { Sparks } from './Sparks';
 
 export { cameraDistanceForFov };
@@ -15,6 +16,7 @@ declare global {
   interface Window {
     __pieFireworkGL?: THREE.WebGLRenderer;
     __pieFireworkScene?: THREE.Scene;
+    __pieFireworkCamera?: THREE.Camera;
   }
 }
 
@@ -70,14 +72,15 @@ export function StageCanvas() {
         // Exposed for inspection and verification (renderer stats, GPU info).
         window.__pieFireworkGL = state.gl;
         window.__pieFireworkScene = state.scene;
+        window.__pieFireworkCamera = state.camera;
       }}
     >
       <Background />
       <CameraRig />
-      <FireworkRig>
-        <PieDisc />
+      <FireworkRig free={<Sparks />}>
+        <SpinnerBody />
+        <SparkSource />
         <OrbitStreaks />
-        <Sparks />
       </FireworkRig>
     </Canvas>
   );

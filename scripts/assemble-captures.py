@@ -5,12 +5,10 @@ Requires Python 3 + Pillow (no FFmpeg needed; FFmpeg-based export is Phase 4).
 
   python scripts/assemble-captures.py [captures/phase3]
 
-Outputs:
-  phase3-full-1080p.webp      real-time playback, full resolution, 30 fps resample
-  phase3-full-540p.gif        same, downscaled GIF for quick sharing
-  phase3-firework-720p.webp   real-time firework + expansion (4–8 s)
-  phase3-firework-720p.gif
-  phase3-contact-sheet.png    key transitional frames (deterministic seeks)
+Outputs (for every rec-<name> recording directory):
+  <name>.webp                 real-time playback at the recorded resolution, 30 fps resample
+  <name>.gif                  same, downscaled GIF for quick sharing
+  contact-sheet.png           key transitional frames (deterministic seeks)
   strips-*.png                8 consecutive frames at 30/60 fps (aliasing review)
 """
 import json, os, sys
@@ -25,7 +23,7 @@ except Exception:
 
 def resample(rec_dir, fps):
     """Pick the captured frame nearest each 1/fps wall-clock tick (preserves real timing)."""
-    ts = json.load(open(os.path.join(rec_dir, 'timing.json')))
+    ts = json.load(open(os.path.join(rec_dir, 'timing.json'), encoding='utf-8'))
     t0, j, picks = ts[0], 0, []
     for k in range(int((ts[-1] - t0) * fps) + 1):
         target = t0 + k / fps
@@ -49,7 +47,7 @@ def save_anim(paths, out_webp, out_gif, fps, gif_width):
 
 def contact_sheet():
     d = os.path.join(root, 'contact')
-    meta = json.load(open(os.path.join(d, 'meta.json')))
+    meta = json.load(open(os.path.join(d, 'meta.json'), encoding='utf-8'))
     cols, tw = 6, 320
     th = 180
     rows = (len(meta) + cols - 1) // cols
@@ -60,7 +58,7 @@ def contact_sheet():
         x, y = (i % cols) * tw, (i // cols) * (th + 20)
         sheet.paste(im, (x, y))
         dr.text((x + 5, y + th + 3), f"{m['t']:.2f}s  {m['phase']}", fill=(225, 225, 232), font=FONT)
-    sheet.save(os.path.join(root, 'phase3-contact-sheet.png'))
+    sheet.save(os.path.join(root, 'contact-sheet.png'))
 
 
 def strips():
@@ -81,10 +79,8 @@ def strips():
 
 contact_sheet()
 strips()
-for rec, base, fps, gw in (('rec-full-1080p', 'phase3-full', 30, 540 * 16 // 9), ('rec-firework-720p', 'phase3-firework-720p', 30, 640)):
-    rd = os.path.join(root, rec)
-    if os.path.isdir(rd):
-        webp = os.path.join(root, f'{base}-1080p.webp' if base == 'phase3-full' else f'{base}.webp')
-        gif = os.path.join(root, f'{base}-540p.gif' if base == 'phase3-full' else f'{base}.gif')
-        save_anim(resample(rd, fps), webp, gif, fps, gw)
+for rec in sorted(d for d in os.listdir(root) if d.startswith('rec-') and os.path.isdir(os.path.join(root, d))):
+    name = rec[len('rec-'):]
+    gif_width = 960 if '1080p' in name else 640
+    save_anim(resample(os.path.join(root, rec), 30), os.path.join(root, f'{name}.webp'), os.path.join(root, f'{name}.gif'), 30, gif_width)
 print('assembled into', root)

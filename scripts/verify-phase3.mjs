@@ -11,6 +11,9 @@
  *    hold phase; first fully-yellow frame; residual blue during the engulf.
  * D. Performance: real-time 1× playback frame pacing per phase at 1080p/720p.
  * E. Temporal aliasing at 30 and 60 fps for every rotating/moving element.
+ * S. Sparks: ignition only once the disc is gold, uneven coverage at ignition →
+ *    nearly 360° shower by the tilt, extent in body radii, live strand counts,
+ *    source attached to the rim, birth tilts of live sparks, gone before the fill.
  * F. Captures: real-time full-res recording (0–8 s), real-time firework +
  *    expansion recording (4–8 s), deterministic contact sheet, frame strips.
  *    Frames and timing are written to disk; scripts/assemble-captures.py builds
@@ -151,7 +154,12 @@ report.finalColour = await page.evaluate(async () => {
   const holdStart = e.getSnapshot().schedule.find((s) => s.id === 'hold').start;
   const check = [holdStart - 1 / 60, holdStart, holdStart + 0.1, holdStart + 0.2, holdStart + 0.3, e.getSnapshot().duration];
   const exact = [];
-  for (const t of check) { e.seek(t); await window.__frame(); exact.push({ t: +t.toFixed(4), nonYellowPixels: nonYellow(), rigVisible: (() => { let v = null; window.__pieFireworkScene.traverse((o) => { if (o.isGroup && o.children.some((c) => c.isMesh)) v = o.visible; }); return v; })() }); }
+  // The firework rig's outer group (shake + expansion) holds the tilted group, which holds
+  // the spinning group with the body meshes; visibility is switched on the outer group.
+  let bodyMesh = null;
+  window.__pieFireworkScene.traverse((o) => { if (o.isMesh && o.geometry.attributes.aSide) bodyMesh = o; });
+  const rig = bodyMesh.parent.parent.parent;
+  for (const t of check) { e.seek(t); await window.__frame(); exact.push({ t: +t.toFixed(4), nonYellowPixels: nonYellow(), rigVisible: rig.visible }); }
   // Engulf: residual non-yellow pixels per 60 fps frame, and first fully-yellow frame.
   const engulf = []; let firstFull = null;
   for (let f = Math.round(7.2 * 60); f <= Math.round(holdStart * 60); f++) {
@@ -166,13 +174,16 @@ report.finalColour = await page.evaluate(async () => {
 report.aliasing = await page.evaluate(() => {
   const e = window.__pieFirework;
   const p = e.getParams();
-  let sparkTrail = null, streakTrails = [];
+  let sparkTrails = [], streakTrails = [];
   window.__pieFireworkScene.traverse((o) => {
-    if (o.isMesh && o.geometry.attributes.aSpark0) sparkTrail = Number(/max\(age - ([0-9.]+)/.exec(o.material.vertexShader)[1]);
-    if (o.isMesh && o.geometry.attributes.aS1) { const a = o.geometry.attributes.aS1.array; for (let i = 1; i < a.length; i += 4) streakTrails.push(a[i]); }
+    // Sparks: per-spark trail in aS2.x (strands and split-off embers). Streaks: trail in aS1.y.
+    if (o.isMesh && o.geometry.attributes.aS3) { const a = o.geometry.attributes.aS2.array; for (let i = 0; i < a.length; i += 4) sparkTrails.push(a[i]); }
+    else if (o.isMesh && o.geometry.attributes.aS1 && o.geometry.attributes.aS2) { const a = o.geometry.attributes.aS1.array; for (let i = 1; i < a.length; i += 4) streakTrails.push(a[i]); }
   });
-  // Energy/swirl arms in the disc shader: [arms, apparent rev/s] (pieShader.ts).
-  const arms = [[3, 1.45], [4, 1.9 + (0.5 * 3.1) / (2 * Math.PI)], [2, 1.15], [4, 1.3], [3, 1.05]];
+  const sourceArcDeg = 30; // emission.ts sourceArc(): 30° at ignition → 42° in the full shower
+  // Moving cel accents: [count per turn, apparent rev/s] — bevel arcs (pieShader.ts) and
+  // side-wall tube stripes (sideShader.ts). Rim heat flashes are re-rolled, not moved.
+  const arms = [[3, 2.0], [7, 1.3]];
   const res = {};
   for (const fps of [30, 60]) {
     // Pie rotation vs blur window, while the segmented pie is still visible.
@@ -187,21 +198,182 @@ report.aliasing = await page.evaluate(() => {
       const gate = e.state.phase.spinUp > 0 ? 1 : 0;
       const onsetW = gate * (onset > 0 ? sm((speed - 0.5 * onset) / (0.5 * onset)) : 1);
       const phys = speed * (1 / 30) * p.blurStrength * onsetW;
-      const windowDeg = Math.min(1, phys + (1 - phys) * e.state.blurMix) * 360;
-      const gap = Math.max(0, step - windowDeg);
+      const windowDeg = Math.min(1, phys * (1 + e.state.smear)) * 360;   // Stage A stretches the hard smear (SpinnerBody)
+      // The morph scales the angular structure by (1 − morph); at 1 the bands are rotation-invariant.
+      const gap = Math.max(0, step - windowDeg) * (1 - e.state.morph);
       maxStepDeg = Math.max(maxStepDeg, step);
       if (gap > worstGap) { worstGap = gap; worstAt = { t: +t.toFixed(3), stepDeg: +step.toFixed(1), blurWindowDeg: +windowDeg.toFixed(1) }; }
     }
     res[`${fps}fps`] = {
       pieMaxStepDeg: +maxStepDeg.toFixed(1),
       pieUnblurredStepDeg: { worst: +worstGap.toFixed(1), at: worstAt, note: 'part of a frame-to-frame rotation step not covered by the blur window; the smallest sector is 21.9°, so steps well below that cannot strobe' },
-      energyArmsWorstStepOfSpacing: +Math.max(...arms.map(([n, s]) => (n * s) / fps)).toFixed(3),
+      accentsWorstStepOfSpacing: +Math.max(...arms.map(([n, s]) => (n * s) / fps)).toFixed(3),
       streaksWorstStepOfTrail: +(1 / (fps * Math.min(...streakTrails))).toFixed(3),
-      sparksStepOfTrail: +(1 / (fps * sparkTrail)).toFixed(3),
+      sparksWorstStepOfTrail: +(1 / (fps * Math.min(...sparkTrails))).toFixed(3),
+      // The nozzle rides the chamfer accents (2 rev/s apparent); its hot source trails it.
+      nozzleStepDeg: +((2 * 360) / fps).toFixed(1),
+      nozzleStepOfSourceArc: +((2 * 360) / fps / sourceArcDeg).toFixed(3),
     };
   }
-  res.criteria = 'energy arms < 0.5 of spacing (direction cannot alias); streak/spark ratio ≤ 1 (trails overlap frame to frame)';
+  res.criteria = 'moving accents < 0.5 of their spacing (direction cannot alias); streak/spark/source ratio ≤ 1 (each frame overlaps the previous one)';
   return res;
+});
+
+// ── E2. Cel / 3D appearance checks ──────────────────────────────────────────
+// (a) Banding: inside the body, nearly all pixels fall into a handful of flat
+//     tones (cel shading), not a gradient. Measured on a disc around the
+//     projected body centre, away from the silhouette and the sparks.
+// (b) Thickness: pixels that change when the side-wall mesh is hidden, i.e. the
+//     visible side face. It should appear with the ignition tilt and grow in the zoom.
+report.appearance = await page.evaluate(async () => {
+  const e = window.__pieFirework;
+  let side = null;
+  window.__pieFireworkScene.traverse((o) => { if (o.isMesh && o.geometry.attributes.aSide) side = o; });
+  const times = [4.3, 4.8, 5.6, 6.6, 6.9, 7.1, 7.3];
+  const out = [];
+  for (const t of times) {
+    e.seek(t); await window.__frame();
+    const a = window.__pixels().slice();
+    // Banding inside a disc of radius 0.6 R around the screen projection of the body centre.
+    const W = 1920, H = 1080;
+    const rig = side.parent.parent;
+    const c = rig.getWorldPosition(side.position.clone().set(0, 0, 0)).project(window.__pieFireworkCamera);
+    const cx = Math.round((c.x * 0.5 + 0.5) * W), cy = Math.round((1 - (c.y * 0.5 + 0.5)) * H);
+    const counts = new Map(); let n = 0;
+    const R = Math.round(Math.min(170 * Math.exp(e.state.expandLog), 900)); // integer: pixel indices must be whole
+    for (let y = Math.max(0, cy - R); y < Math.min(H, cy + R); y += 2) for (let x = Math.max(0, cx - R); x < Math.min(W, cx + R); x += 2) {
+      if ((x - cx) ** 2 + (y - cy) ** 2 > R * R) continue;
+      const i = (y * W + x) * 4; const k = (a[i] << 16) | (a[i + 1] << 8) | a[i + 2];
+      counts.set(k, (counts.get(k) ?? 0) + 1); n++;
+    }
+    const top = [...counts.values()].sort((p, q) => q - p);
+    const share8 = top.slice(0, 8).reduce((p, q) => p + q, 0) / Math.max(n, 1);
+    // Side wall contribution.
+    side.material.visible = false;            // SpinnerBody owns mesh.visible; the material flag is free
+    await window.__frame();
+    const b = window.__pixels();
+    side.material.visible = true;
+    await window.__frame();
+    let sidePx = 0; for (let i = 0; i < a.length; i += 4) if (a[i] !== b[i] || a[i + 1] !== b[i + 1] || a[i + 2] !== b[i + 2]) sidePx++;
+    out.push({ t, shade: +e.state.shade.toFixed(2), bodyPixelsInTop8Tones: +share8.toFixed(4), distinctTonesSampled: counts.size, sideWallPixels: sidePx });
+  }
+  return out;
+});
+
+// ── S. Sparks: sequence, coverage, extent, attachment, trajectories ────────────
+// Spark pixels are the pixels that change when the spark mesh is hidden. Coverage
+// counts 10° sectors around the projected body centre that hold spark pixels outside
+// the body; extent is the spark-pixel radius in body radii (screen space).
+report.sparks = await page.evaluate(async () => {
+  const e = window.__pieFirework;
+  const W = 1920, H = 1080;
+  const scene = window.__pieFireworkScene, cam = window.__pieFireworkCamera;
+  let sparks = null, source = null, side = null;
+  scene.traverse((o) => {
+    if (o.isMesh && o.geometry.attributes.aS3) sparks = o;
+    if (o.isMesh && o.geometry.attributes.aArc) source = o;
+    if (o.isMesh && o.geometry.attributes.aSide) side = o;
+  });
+  const tilted = side.parent.parent; // spinning group → tilted group
+  const outer = tilted.parent;       // shake + expansion (the sparks' parent)
+  const attr = (k) => sparks.geometry.attributes[k].array;
+  const a0 = attr('aS0'), a1 = attr('aS1'), a2 = attr('aS2'), a3 = attr('aS3');
+  const n = a0.length / 4;
+  const p = e.getParams();
+  const snap = e.getSnapshot();
+  const fw = snap.schedule.find((s) => s.id === 'firework'), zm = snap.schedule.find((s) => s.id === 'zoom');
+  const igniteStart = fw.start + (fw.end - fw.start) * p.goldAt;
+  const showerStart = igniteStart + p.igniteDur;
+  const gone = zm.start + (zm.end - zm.start) * (p.fillAt - 0.02);
+  const V = outer.position.constructor;
+  const project = (obj, x, y, z) => {
+    const v = obj.localToWorld(new V(x, y, z)).project(cam);
+    return [(v.x * 0.5 + 0.5) * W, (1 - (v.y * 0.5 + 0.5)) * H];
+  };
+  const diffMask = async (mesh) => {
+    await window.__frame();
+    const a = window.__pixels().slice();
+    mesh.material.visible = false; await window.__frame();
+    const b = window.__pixels();
+    mesh.material.visible = true; await window.__frame();
+    const px = [];
+    for (let i = 0; i < a.length; i += 4) if (a[i] !== b[i] || a[i + 1] !== b[i + 1] || a[i + 2] !== b[i + 2]) px.push(i / 4);
+    return px;
+  };
+  const deg = (r) => +((-r * 180) / Math.PI).toFixed(1);
+  const live = (t) => {
+    let strands = 0, embers = 0, lo = Infinity, hi = -Infinity;
+    for (let i = 0; i < n; i++) {
+      const age = t - a0[i * 4];
+      if (age < 0 || age - a2[i * 4] > a0[i * 4 + 1]) continue;
+      if (a3[i * 4 + 1] >= 0) { if (age > a3[i * 4 + 1]) embers++; continue; }
+      strands++;
+      lo = Math.min(lo, -a1[i * 4 + 3]); hi = Math.max(hi, -a1[i * 4 + 3]);
+    }
+    return { liveStrands: strands, liveEmbers: embers, birthTiltRangeDeg: strands ? [deg(-lo), deg(-hi)] : null };
+  };
+  const rows = [];
+  for (const t of [igniteStart - 1 / 60, igniteStart + 0.05, 5.25, 5.35, showerStart, 5.6, 5.8, 6.0, 6.2, 6.45, 6.7, 6.95, 7.2, 7.4, gone + 0.005]) {
+    e.seek(t);
+    const px = await diffMask(sparks);
+    const [cx, cy] = project(outer, 0, 0, 0);
+    const [rx, ry] = project(outer, 1, 0, 0), [ux, uy] = project(outer, 0, 1, 0);
+    const R = Math.max(Math.hypot(rx - cx, ry - cy), Math.hypot(ux - cx, uy - cy));
+    const bins = new Array(36).fill(0);
+    const radii = [];
+    for (const i of px) {
+      const x = i % W, y = Math.floor(i / W);
+      const r = Math.hypot(x - cx, y - cy);
+      if (r < 1.1 * R) continue;
+      bins[Math.floor(((Math.atan2(y - cy, x - cx) + Math.PI) / (2 * Math.PI)) * 36) % 36]++;
+      radii.push(r / R);
+    }
+    radii.sort((a, b) => a - b);
+    // Concentration: share of the spray (outside the body) in its densest 120° window
+    // (a uniform halo gives 0.33).
+    const total = bins.reduce((a, b) => a + b, 0);
+    let best = 0;
+    for (let k = 0; k < 36; k++) { let sum = 0; for (let j = 0; j < 12; j++) sum += bins[(k + j) % 36]; best = Math.max(best, sum); }
+    // Hot source attached to the physical rim: distance from the nozzle, projected from the
+    // tilted body frame, to the nearest pixel the source draws (0 = the nozzle is on it).
+    let nozzleToSourceR = null;
+    if (t > igniteStart && t < gone) {
+      const sp = await diffMask(source);
+      if (sp.length) {
+        const u = source.material.uniforms;
+        const [nx, ny] = project(tilted, u.uCentre.value * Math.cos(u.uNozzle.value), -u.uCentre.value * Math.sin(u.uNozzle.value), 0);
+        let d = Infinity;
+        for (const i of sp) d = Math.min(d, Math.hypot((i % W) - nx, Math.floor(i / W) - ny));
+        nozzleToSourceR = +(d / R).toFixed(3);
+      }
+    }
+    const q = tilted.quaternion;
+    rows.push({
+      t: +t.toFixed(3),
+      sparkPixels: px.length,
+      ...live(t),
+      bodyTiltDeg: +((2 * Math.acos(Math.min(1, Math.abs(q.w))) * 180) / Math.PI).toFixed(1),
+      coverage360: +(bins.filter((b) => b >= 4).length / 36).toFixed(2),
+      densest120Share: total ? +(best / total).toFixed(2) : null,
+      extentR: radii.length ? { p50: +radii[Math.floor(radii.length * 0.5)].toFixed(2), p95: +radii[Math.floor(radii.length * 0.95)].toFixed(2) } : null,
+      fire: +e.state.fire.toFixed(3),
+      nozzleToSourceR,
+    });
+  }
+  e.seek(igniteStart);
+  const goldMixAtIgnition = +e.state.goldMix.toFixed(4);
+  let firstBirth = Infinity, lastDeath = 0, embers = 0;
+  for (let i = 0; i < n; i++) {
+    firstBirth = Math.min(firstBirth, a0[i * 4]);
+    lastDeath = Math.max(lastDeath, a0[i * 4] + a0[i * 4 + 1] + a2[i * 4]);
+    if (a3[i * 4 + 1] >= 0) embers++;
+  }
+  return {
+    timing: { goldReached: +igniteStart.toFixed(3), goldMixAtIgnition, showerStart: +showerStart.toFixed(3), showerFull: +fw.end.toFixed(3), gone: +gone.toFixed(3) },
+    instances: { total: n, embers, firstBirth: +firstBirth.toFixed(4), lastPossibleTrail: +lastDeath.toFixed(3) },
+    rows,
+    criteria: 'no spark pixels before ignition or after "gone"; ignition: partial coverage and a concentrated spray (densest 120° share well above 0.33); full shower: coverage ≥ 0.9; nozzle on the drawn source (0); live sparks keep the body tilt of their birth while the body tilts on',
+  };
 });
 
 // ── D. Performance: real-time playback frame pacing ────────────────────────
@@ -242,7 +414,7 @@ report.performance = { '1920x1080': await measurePlayback(page) };
 
 // ── F. Captures ──────────────────────────────────────────────────────────────
 // Deterministic contact sheet frames.
-const sheetTimes = [0.3, 1.0, 1.6, 1.7, 2.05, 2.93, 3.5, 4.0, 4.2, 4.4, 4.6, 4.8, 5.0, 5.3, 5.8, 6.2, 6.6, 6.9, 7.1, 7.25, 7.35, 7.45, 7.6, 8.0];
+const sheetTimes = [1.6, 2.93, 3.8, 4.0, 4.08, 4.16, 4.32, 4.5, 4.8, 5.0, 5.12, 5.25, 5.38, 5.5, 5.65, 5.85, 6.05, 6.2, 6.5, 6.8, 7.05, 7.25, 7.47, 7.6];
 rmSync(join(out, 'contact'), { recursive: true, force: true });
 mkdirSync(join(out, 'contact'), { recursive: true });
 const sheetMeta = [];
@@ -259,7 +431,7 @@ writeFileSync(join(out, 'contact', 'meta.json'), JSON.stringify(sheetMeta));
 
 // Consecutive-frame strips at 30 and 60 fps (temporal aliasing review).
 for (const fps of [30, 60]) {
-  for (const [name, t0] of [['spinup', 3.6], ['firework', 5.5]]) {
+  for (const [name, t0] of [['spinup', 3.6], ['transition', 4.1], ['ignition', 5.15], ['shower', 5.9], ['tilt', 6.25], ['zoom', 6.8]]) {
     const dir = join(out, 'strips', `${name}-${fps}fps`);
     rmSync(dir, { recursive: true, force: true }); mkdirSync(dir, { recursive: true });
     for (let i = 0; i < 8; i++) {
@@ -298,7 +470,9 @@ async function record(w, h, from, to, name) {
 if (!args['skip-recordings']) {
   report.recordings = {
     fullPlayback: await record(1920, 1080, 0, 8, 'rec-full-1080p'),
-    fireworkAndExpansion: await record(1280, 720, 4.0, 8, 'rec-firework-720p'),
+    pieToFirework: await record(1280, 720, 3.7, 5.1, 'rec-transition-720p'),
+    sparks: await record(1280, 720, 4.9, 6.6, 'rec-sparks-720p'),
+    tiltAndZoom: await record(1280, 720, 6.1, 8.0, 'rec-zoom-720p'),
   };
 }
 

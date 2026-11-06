@@ -29,11 +29,15 @@ export function tiltAxis(params: Params): [number, number, number] {
 }
 
 /**
- * Signed tilt angle in radians for progress 0..1. Negative rotation about
- * the (mostly X) axis moves the disc's top edge away from the camera.
+ * Signed tilt angle in radians. Negative rotation about the (mostly X) axis
+ * moves the disc's top edge away from the camera. The gentle ignition tilt
+ * (preTilt 0..1 × preTiltDeg) comes first; the main tilt (0..1) then carries
+ * it on to tiltDeg.
  */
-export function tiltAngle(params: Params, progress: number): number {
-  return -(params.tiltDeg as number) * DEG * progress;
+export function tiltAngle(params: Params, progress: number, preTilt = 1): number {
+  const pre = (params.preTiltDeg as number) * preTilt;
+  const full = params.tiltDeg as number;
+  return -(pre + (full - (params.preTiltDeg as number)) * progress) * DEG;
 }
 
 /**
@@ -91,13 +95,13 @@ export function coverScaleAtEnd(params: Params): number {
  * Live coverage ratio (≥ 1 means every corner is inside the disc edge) for
  * the debug readout and verification. Ignores vibration, which is ~0 by the time this matters.
  */
-export function coverageRatio(params: Params, tilt01: number, camera01: number, scale: number): number {
+export function coverageRatio(params: Params, tilt01: number, camera01: number, scale: number, preTilt01 = 1): number {
   const need = radiusToCoverCorners(
     aspectRatio(params),
     params.fov as number,
     cameraZ(params, camera01),
     tiltAxis(params),
-    tiltAngle(params, tilt01),
+    tiltAngle(params, tilt01, preTilt01),
   );
   return (scale * PIE_RADIUS_WORLD) / need;
 }

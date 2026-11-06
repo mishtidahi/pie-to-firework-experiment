@@ -5,7 +5,7 @@
  * File format (presets/<name>.json):
  *   {
  *     "format": "pie-firework-preset",
- *     "version": 1,
+ *     "version": 3,
  *     "name": "final",
  *     "description": "optional free text",
  *     "createdAt": "optional ISO timestamp",
@@ -32,7 +32,56 @@ import {
 } from './params.ts';
 
 export const PRESET_FORMAT = 'pie-firework-preset';
-export const PRESET_VERSION = 1;
+export const PRESET_VERSION = 3;
+
+/**
+ * Parameters introduced by each format version, with the values a preset from
+ * the previous version is upgraded to (the schema defaults at that time).
+ * v2: cel-shaded 3D spinner revision.
+ */
+const ADDED_IN_V2: Record<string, number> = {
+  smearSteps: 3,
+  thickness: 0.26,
+  bevel: 0.06,
+  preTiltDeg: 18,
+  toonBands: 3,
+  coilGrooves: 1,
+  lightAngleDeg: 125,
+  sparkLift: 0.9,
+};
+
+/** v3: chakri spark emission (nozzle on the rim, ignition → shower → fade). */
+const ADDED_IN_V3: Record<string, number> = {
+  igniteDur: 0.35,
+  igniteSpread: 40,
+  sparkCoverage: 330,
+  igniteRate: 700,
+  sparkWidth: 0.045,
+  sparkTrail: 0.15,
+  sparkWaver: 1,
+  sparkFadeAt: 0.35,
+};
+
+/**
+ * v3 spark parameters whose scale changed with the new emission model. They are
+ * converted proportionally, so a v2 preset at the old default lands exactly on the
+ * new default, and one tuned to e.g. 1.5× the old default gets 1.5× the new one.
+ * `sparkCount` (total sparks) became `showerDensity` (sparks per second at peak).
+ */
+const RESCALED_IN_V3: { from: string; to: string; oldDefault: number; newDefault: number }[] = [
+  { from: 'sparkCount', to: 'showerDensity', oldDefault: 1800, newDefault: 900 },
+  { from: 'sparkSpeed', to: 'sparkSpeed', oldDefault: 2.3, newDefault: 5.5 },
+  { from: 'sparkLife', to: 'sparkLife', oldDefault: 0.6, newDefault: 0.8 },
+];
+
+/** Proportional conversion, clamped to the new range and snapped to the parameter's step. */
+function rescale(value: unknown, oldDefault: number, newDefault: number, key: string): unknown {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return value; // left for validation to report
+  const def = PARAM_SCHEMA[key as ParamKey] as ParamDef;
+  if (def.kind !== 'number') return value;
+  const scaled = Math.min(def.max, Math.max(def.min, (value * newDefault) / oldDefault));
+  return Number((Math.round(scaled / def.step) * def.step).toFixed(6));
+}
 /** Lower-case file-system- and URL-safe names. */
 export const PRESET_NAME_PATTERN = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 /** Presets that ship with the project and may not be overwritten by the save endpoint. */
@@ -54,10 +103,39 @@ export type PresetValidation = { ok: true; preset: Preset } | { ok: false; error
 
 const TOP_LEVEL_KEYS = new Set(['format', 'version', 'name', 'description', 'createdAt', 'params']);
 
-/** Upgrade older preset versions to the current shape. (v1 is the first version.) */
+/**
+ * Upgrade older preset versions to the current shape, one version at a time.
+ * Note for v1 → v2: the renderer changed (cel-shaded 3D body), so a v1 preset
+ * keeps its timing, motion, colours and particles but renders in the new style.
+ * The original flat look is recoverable from git tag `phase3-complete`.
+ * v2 → v3: the spark model changed. Timing (including `goldAt`, so ignition still
+ * starts when that preset's disc turns gold), seed, lift and streaks are kept; the
+ * new emission controls start at their defaults; rescaled keys are converted.
+ */
 function migrate(raw: Record<string, unknown>): Record<string, unknown> {
-  // Future: if (raw.version === 1) { …add new params with v1-equivalent values…; raw.version = 2; }
-  return raw;
+  let out = raw;
+  const paramsOf = (o: Record<string, unknown>) =>
+    o.params && typeof o.params === 'object' && !Array.isArray(o.params) ? (o.params as Record<string, unknown>) : null;
+  if (out.version === 1) {
+    const params = paramsOf(out);
+    out = { ...out, version: 2, params: params ? { ...ADDED_IN_V2, ...params } : out.params };
+  }
+  if (out.version === 2) {
+    const params = paramsOf(out);
+    if (params) {
+      const next: Record<string, unknown> = { ...ADDED_IN_V3, ...params };
+      for (const { from, to, oldDefault, newDefault } of RESCALED_IN_V3) {
+        if (!(from in params)) continue; // a missing key is reported by validation (as the new key)
+        const value = params[from];
+        delete next[from];
+        next[to] = rescale(value, oldDefault, newDefault, to);
+      }
+      out = { ...out, version: 3, params: next };
+    } else {
+      out = { ...out, version: 3 };
+    }
+  }
+  return out;
 }
 
 export function validatePreset(input: unknown): PresetValidation {

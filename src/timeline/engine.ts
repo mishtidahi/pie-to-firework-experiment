@@ -3,6 +3,7 @@ import type { MotionTrack } from '../motion/MotionTrack';
 import type { PhaseId } from '../phases';
 import { createAnimState, type AnimState } from './animState';
 import { buildMasterTimeline, type MasterTimeline, type PhaseSpan } from './buildMasterTimeline';
+import { sampleRigTrack, type RigTrack } from './rigTrack';
 
 export interface EngineSnapshot {
   time: number;
@@ -23,6 +24,8 @@ export interface BuildInfo {
   params: Params;
   schedule: PhaseSpan[];
   duration: number;
+  /** Rig tilt and vibration envelope over the firework (sparks need the orientation at birth). */
+  rig: RigTrack;
 }
 
 /**
@@ -135,7 +138,11 @@ export class AnimationEngine {
   // ── Internals ─────────────────────────────────────────────────────────────
   private build(): MasterTimeline {
     const master = buildMasterTimeline(this.params, this.state);
-    this.buildInfo = { params: this.params, schedule: master.schedule, duration: master.duration };
+    // Sampled before any callbacks are attached; leaves the timeline at time 0 like a fresh build.
+    const fw = master.schedule.find((s) => s.id === 'firework')!;
+    const zm = master.schedule.find((s) => s.id === 'zoom')!;
+    const rig = sampleRigTrack(master, this.params, this.state, fw.start - 0.05, zm.end + 0.05);
+    this.buildInfo = { params: this.params, schedule: master.schedule, duration: master.duration, rig };
     master.tl.timeScale(this.speed);
     master.tl.eventCallback('onUpdate', () => this.refresh());
     master.tl.eventCallback('onComplete', () => {

@@ -53,7 +53,7 @@ test('preset files exported from the workbench are passed inline to the player',
 });
 
 test('explicit preset that cannot be found is an error, never a fallback', () => {
-  throwsConfig(() => resolveExportConfig({ preset: 'does-not-exist' }), /not found[\s\S]*Available presets: default, final/);
+  throwsConfig(() => resolveExportConfig({ preset: 'does-not-exist' }), /not found[\s\S]*Available presets: .*\bdefault\b.*\bfinal\b/);
   throwsConfig(() => resolveExportConfig({ 'preset-file': join(tmp, 'missing.json') }), /Preset file not found/);
   throwsConfig(() => resolveExportConfig({ preset: '../package' }), /not a valid preset name/);
   throwsConfig(() => resolveExportConfig({}), /No preset selected/);

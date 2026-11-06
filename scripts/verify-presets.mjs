@@ -2,7 +2,7 @@
 /**
  * Browser verification of presets (requires the dev server).
  *
- *   node scripts/verify-presets.mjs [--url http://localhost:5173] [--baseline-url http://localhost:5174]
+ *   node scripts/verify-presets.mjs [--url http://localhost:5173] [--baseline-url http://localhost:5174 [--baseline-until 4.0]]
  *
  * Renders on SwiftShader (bit-exact), with the workbench stage forced to the
  * same 960×540 canvas as the player so frames can be compared pixel for pixel.
@@ -17,19 +17,21 @@
  *  5. Explicit errors: unknown preset, bad inline data, ambiguous URL, fingerprint pin.
  *  6. Dev "Save to project" endpoint (create, refuse overwrite, protect default, reject invalid).
  *  7. Export plan → player page consistency (Phase 4 contract).
- *  8. Optional: default animation pixel-identical to a baseline build (e.g. tag phase3-complete).
+ *  8. Optional: default animation pixel-identical to a baseline build (e.g. tag phase3-complete),
+ *     over the whole timeline or only before --baseline-until seconds (for intentional later changes).
  */
 import { chromium } from 'playwright-core';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { animationDuration, defaultParams } from '../src/config/params.ts';
-import { createPreset, encodePresetForUrl, presetFingerprint, serializePreset, validatePreset } from '../src/config/preset.ts';
+import { PRESET_VERSION, createPreset, encodePresetForUrl, presetFingerprint, serializePreset, validatePreset } from '../src/config/preset.ts';
 import { PRESET_DIR, resolveExportConfig } from './lib/export-config.mjs';
 
 const args = Object.fromEntries(process.argv.slice(2).reduce((a, x, i, all) => (x.startsWith('--') ? [...a, [x.slice(2), all[i + 1]]] : a), []));
 const BASE = args.url ?? 'http://localhost:5173';
 const BASELINE = args['baseline-url'];
+const BASELINE_UNTIL = args['baseline-until'] !== undefined ? Number(args['baseline-until']) : Infinity;
 const TIMES = [0.0, 1.6, 2.05, 4.0, 4.8, 5.5, 6.9, 7.6, 8.0];
 const W = 960, H = 540;
 const tmp = mkdtempSync(join(tmpdir(), 'pie-presets-'));
@@ -103,7 +105,7 @@ const info = (page) =>
 
 const custom = createPreset('verify-custom', {
   ...defaultParams(),
-  seed: 4242, tiltDeg: 44, tiltAxisDeg: 12, sparkCount: 2600, glow: 0.8, discOrange: 0.75, overshootDeg: 30, durZoom: 1.5, durHold: 0.3,
+  seed: 4242, tiltDeg: 44, tiltAxisDeg: 12, showerDensity: 2600, glow: 0.8, discOrange: 0.75, overshootDeg: 30, durZoom: 1.5, durHold: 0.3,
 }, 'Cross-mode verification preset');
 const customHash = `#preset=${encodePresetForUrl(custom)}`;
 
@@ -168,7 +170,7 @@ for (const cfg of configs) {
 // ── 3. Export JSON via the UI → fresh browser session import → player link ───
 {
   const { page, ctx } = await open('/', { mode: 'workbench' });
-  await page.evaluate(() => window.__pieFirework.setParams({ ...window.__pieFirework.getParams(), tiltDeg: 50, sparkCount: 2200, discOrange: 0.68 }));
+  await page.evaluate(() => window.__pieFirework.setParams({ ...window.__pieFirework.getParams(), tiltDeg: 50, showerDensity: 2200, discOrange: 0.68 }));
   await page.fill('.preset-panel input.text', 'verify-export');
   const [dl] = await Promise.all([page.waitForEvent('download'), page.click('button:has-text("Export JSON")')]);
   const exportedPath = join(tmp, 'verify-export.json');
@@ -176,7 +178,7 @@ for (const cfg of configs) {
   const exported = JSON.parse(readFileSync(exportedPath, 'utf8'));
   const v = validatePreset(exported);
   const current = await info(page);
-  check('exported JSON is a valid v1 preset named as requested', v.ok && exported.version === 1 && exported.name === 'verify-export' && dl.suggestedFilename() === 'verify-export.json');
+  check(`exported JSON is a valid v${PRESET_VERSION} preset named as requested`, v.ok && exported.version === PRESET_VERSION && exported.name === 'verify-export' && dl.suggestedFilename() === 'verify-export.json');
   check('exported JSON contains exactly the current animation params', v.ok && JSON.stringify(v.preset.params) === JSON.stringify(current.anim));
   check('exported JSON excludes output settings', !('exportFps' in exported.params));
   await ctx.close();
@@ -279,13 +281,19 @@ for (const opts of [{ preset: 'final', fps: '60' }, { 'preset-file': (writeFileS
 if (BASELINE) {
   const cur = await open('/?debug=0&autoplay=0', { mode: 'player' });
   const old = await open('/?debug=0', { mode: 'player', base: BASELINE });
-  const fine = Array.from({ length: 33 }, (_, i) => i * 0.25);
-  const times = [...new Set([...TIMES, ...fine])].sort((a, b) => a - b);
+  const fine = Array.from({ length: 81 }, (_, i) => i * 0.1);
+  const times = [...new Set([...TIMES, ...fine].map((t) => +t.toFixed(3)))].filter((t) => t < BASELINE_UNTIL).sort((a, b) => a - b);
   const [a, b] = [await sample(cur.page, times), await sample(old.page, times)];
+  // Compare the state keys both builds share (later revisions may add fields).
+  const shared = (x, y) => {
+    const [px, py] = [JSON.parse(x), JSON.parse(y)];
+    return Object.keys(px).filter((k) => k in py).every((k) => JSON.stringify(px[k]) === JSON.stringify(py[k]));
+  };
   const diffFrames = times.filter((_, i) => a[i].hash !== b[i].hash);
-  const diffState = times.filter((_, i) => a[i].state !== b[i].state);
-  check(`default animation pixel-identical to baseline build at ${times.length} timestamps`, diffFrames.length === 0, { baseline: BASELINE, mismatched: diffFrames });
-  check('default animation state identical to baseline build', diffState.length === 0, { mismatched: diffState });
+  const diffState = times.filter((_, i) => !shared(a[i].state, b[i].state));
+  const range = Number.isFinite(BASELINE_UNTIL) ? ` (t < ${BASELINE_UNTIL} s)` : '';
+  check(`default animation pixel-identical to baseline build at ${times.length} timestamps${range}`, diffFrames.length === 0, { baseline: BASELINE, mismatched: diffFrames });
+  check(`default animation state identical to baseline build${range}`, diffState.length === 0, { mismatched: diffState });
   await cur.ctx.close();
   await old.ctx.close();
 }

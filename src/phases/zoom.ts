@@ -1,5 +1,6 @@
 import gsap from 'gsap';
 import { aspectRatio } from '../config/params';
+import { fadeTimes } from '../effects/emission';
 import { PIE_RADIUS_WORLD } from '../geometry/pieGeometry';
 import { cameraZ, radiusToCoverCorners, tiltAngle, tiltAxis } from '../geometry/projection';
 import type { PhaseModule } from './types';
@@ -19,7 +20,7 @@ const COVER_SAFETY = 1.04;
  * four frame corners. The scale curve exp(L·p^k) is then fitted to pass
  * through that radius at `fillAt`, which makes "the frame is full" a
  * deterministic, adjustable moment. Growth is exponential, so it reads as a rush
- * toward the viewer. Sparks, glow, wobble and energy fade out by `fillAt`;
+ * toward the viewer. Sparks, accents, wobble and cel shading fade out by `fillAt`;
  * the background crossfade starts only after full coverage and is never
  * visible (verified).
  */
@@ -72,10 +73,15 @@ export const zoomPhase: PhaseModule = {
 
     // Everything that is not flat yellow is gone by the time the frame is full.
     const gone = fillAt - 0.02;
-    tl.fromTo(state, { fire: 1 }, { fire: 0, duration: duration * (gone - 0.42), ease: 'sine.in', immediateRender: false }, at(0.42));
+    // The full spark shower carries into the tilt, then thins out (emission declines over the
+    // same window in emission.ts) until it is gone as the frame fills.
+    const sparks = fadeTimes(params, start, duration);
+    tl.fromTo(state, { fire: 1 }, { fire: 0, duration: sparks.gone - sparks.fadeStart, ease: 'sine.in', immediateRender: false }, sparks.fadeStart);
     tl.fromTo(state, { vibration: 1 }, { vibration: 0, duration: duration * (gone - 0.45), ease: 'sine.inOut', immediateRender: false }, at(0.45));
     tl.fromTo(state, { wobble: 1 }, { wobble: 0, duration: duration * (gone - 0.5), ease: 'sine.inOut', immediateRender: false }, at(0.5));
     tl.fromTo(state, { energy: 1 }, { energy: 0, duration: duration * (gone - 0.5), ease: 'sine.inOut', immediateRender: false }, at(0.5));
+    // Cel shading holds through most of the rush (it sells the volume) and flattens to pure yellow as the frame fills.
+    tl.fromTo(state, { shade: 1 }, { shade: 0, duration: duration * (gone - 0.68), ease: 'sine.in', immediateRender: false }, at(0.68));
     // Safety net only: hidden behind the disc whenever coverage succeeds.
     const bgStart = Math.min(fillAt + 0.02, 0.99);
     tl.fromTo(state, { bgMix: 0 }, { bgMix: 1, duration: duration * (1 - bgStart), ease: 'none', immediateRender: false }, at(bgStart));
